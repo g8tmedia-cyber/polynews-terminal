@@ -1,28 +1,19 @@
 #!/usr/bin/env python3
-"""PolyNews Terminal — Flask server: REST polling + SSE fallback."""
+"""PolyNews Terminal — Flask server: REST polling."""
 
-import subprocess
-import sys
-import os
-import threading
-import json
-import time
-import re
+import subprocess, sys, os, threading, json, time
 from collections import deque
 from flask import Flask, Response, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder='dist', static_url_path='')
-
 MAX_LINES = 200
 raw_lines = deque(maxlen=MAX_LINES)
 lines_lock = threading.Lock()
+POLL_INTERVAL = 120
 
-POLL_INTERVAL = 120  # seconds between polynews refreshes
-
-# ── Background poller ─────────────────────────────────────────────────────────
 def run_polynews():
     proc = subprocess.Popen(
-        [sys.executable.replace('/home/pc/hermes-agent/venv/bin/python3', '/usr/bin/python3') if 'hermes-agent' in sys.executable else sys.executable, '/home/pc/polynews.py', '--live', '--interval', str(POLL_INTERVAL)],
+        ['/usr/bin/python3', '/home/pc/polynews.py', '--live', '--interval', str(POLL_INTERVAL)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         cwd='/home/pc',
         env={**os.environ, 'TERM': 'xterm-256color'}
@@ -37,12 +28,33 @@ def run_polynews():
         proc.terminate()
         proc.wait()
 
-# Start background poller
 poly_t = threading.Thread(target=run_polynews, daemon=True)
 poly_t.start()
 
-# ── SSE (works locally, good for same-network browsers) ───────────────────────
-@app.route('/stream')
+@app.route('/api/status')
+def status():
+    with lines_lock:
+        lines = list(raw_lines)
+    sources = []
+    for line in reversed(lines):
+        if 'Reddit' in line and ':' in line: sources.append('reddit')
+        elif 'Hacker News' in line: sources.append('hn')
+        elif 'BBC' in line: sources.append('bbc')
+        elif 'Yahoo' in line: sources.append('yahoo')
+        elif 'CoinDesk' in line: sources.append('coindesk')
+        elif 'The Block' in line: sources.append('block')
+        elif 'Polymarket' in line: sources.append('polymarket')
+        elif 'Google News' in line: sources.append('google')
+        elif 'Twitter' in line: sources.append('twitter')
+    sources = list(dict.fromkeys(reversed(sources)))
+    return jsonify({"status": "ok", "lines_cached": len(lines), "sources": sources})
+
+@app.route('/api/news')
+def news():
+    with lines_lock:
+        return jsonify({"lines": list(raw_lines), "count": len(raw_lines)})
+
+@app.route('/api/news/stream')
 def stream():
     def generate():
         last_idx = 0
@@ -52,50 +64,17 @@ def stream():
                 lines = list(raw_lines)
             if len(lines) > last_idx:
                 for l in lines[last_idx:]:
-                    yield f"data: {l}\n\n"
+                    yield f"data: {json.dumps({'line': l})}\n\n"
                 last_idx = len(lines)
-            yield f"data: heartbeat\n\n"
+    return Response(generate(), mimetype='text/event-stream')
 
-    return Response(
-        generate(),
-        mimetype='text/event-stream',
-        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
-    )
-
-# ── REST polling endpoint (reliable over Cloudflare) ─────────────────────────
-@app.route('/api/news')
-def get_news():
-    """Return latest raw lines as JSON array."""
-    with lines_lock:
-        lines = list(raw_lines)
-    return jsonify({
-        'status': 'ok',
-        'timestamp': time.time(),
-        'count': len(lines),
-        'lines': lines
-    })
-
-@app.route('/api/status')
-def status():
-    return jsonify({
-        'status': 'ok',
-        'sources': ['hn','bbc','yahoo','coindesk','block','polymarket','reddit','google'],
-        'lines_cached': len(raw_lines)
-    })
-
-# ── Static SPA ─────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
-    dist = os.path.join(os.path.dirname(__file__), 'dist')
-    index_path = os.path.join(dist, 'index.html')
-    if os.path.exists(index_path):
-        return send_from_directory(dist, 'index.html')
-    return "Run `npm run build` first.", 503
+    return send_from_directory('dist', 'index.html')
+
+@app.route('/<path:path>')
+def static_files(path):
+    return send_from_directory('dist', path)
 
 if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--port', type=int, default=3000)
-    args = parser.parse_args()
-    print(f"🚀 PolyNews Terminal → http://0.0.0.0:{args.port}")
-    app.run(host='0.0.0.0', port=args.port, threaded=True, debug=False)
+    app.run(host='0.0.0.0', port=3001, debug=False, threaded=True)
