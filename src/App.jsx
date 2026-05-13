@@ -12,12 +12,13 @@ const SOURCES = [
 ]
 
 function SourceBadge({ source }) {
+  const s = SOURCES.find(x => x.id === source) || SOURCES[0]
   return (
     <span
       className="inline-block px-1.5 py-0.5 rounded text-xs font-bold mr-2 mb-1"
-      style={{ backgroundColor: source.color + '22', color: source.color, border: `1px solid ${source.color}44` }}
+      style={{ backgroundColor: s.color + '22', color: s.color, border: `1px solid ${s.color}44` }}
     >
-      {source.label}
+      {s.label}
     </span>
   )
 }
@@ -38,22 +39,17 @@ function TimeAgo({ ts }) {
   return <span className="text-gray-500">{ago}</span>
 }
 
-function TickerItem({ item }) {
+function TickerItem({ text, color }) {
   return (
-    <a
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center whitespace-nowrap mx-6 text-sm hover:opacity-80"
-    >
-      <SourceBadge source={SOURCES.find(s => s.id === item.source) || SOURCES[0]} />
-      <span className="text-terminal-text font-medium">{item.title}</span>
-    </a>
+    <span className="inline-flex items-center whitespace-nowrap mx-6 text-sm">
+      <span className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: color }} />
+      <span className="text-terminal-text">{text}</span>
+    </span>
   )
 }
 
 function NewsCard({ item }) {
-  const source = SOURCES.find(s => s.id === item.source) || SOURCES[0]
+  const s = SOURCES.find(x => x.id === item.source) || SOURCES[0]
   return (
     <a
       href={item.url}
@@ -64,19 +60,13 @@ function NewsCard({ item }) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={{ backgroundColor: source.color }}
-            />
-            <span className="text-xs font-semibold" style={{ color: source.color }}>{source.label}</span>
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+            <span className="text-xs font-semibold" style={{ color: s.color }}>{s.label}</span>
             {item.time && <TimeAgo ts={item.time} />}
           </div>
           <h3 className="text-terminal-text font-medium text-sm leading-snug mb-2 line-clamp-2">
             {item.title}
           </h3>
-          {item.summary && (
-            <p className="text-terminal-muted text-xs leading-relaxed line-clamp-2">{item.summary}</p>
-          )}
         </div>
       </div>
     </a>
@@ -98,14 +88,14 @@ function SearchBar({ value, onChange }) {
   )
 }
 
-function StatusBar({ connected, lastUpdate, items }) {
+function StatusBar({ connected, lastUpdate, itemCount }) {
   return (
     <div className="flex items-center justify-between text-xs text-terminal-muted px-4 py-2 border-b border-terminal-border">
       <div className="flex items-center gap-4">
         <span className={connected ? 'text-terminal-green' : 'text-terminal-red'}>
-          ● {connected ? 'LIVE' : 'DISCONNECTED'}
+          ● {connected ? 'LIVE' : 'CONNECTING'}
         </span>
-        <span>{items.length} headlines</span>
+        <span>{itemCount} headlines</span>
         {lastUpdate && <span>Updated {new Date(lastUpdate * 1000).toLocaleTimeString()}</span>}
       </div>
       <div className="flex items-center gap-2">
@@ -139,92 +129,110 @@ function MobileNav({ activeTab, onTabChange }) {
   )
 }
 
+// ── Parse raw polynews lines into structured items ─────────────────────────────
+function parseItems(rawLines) {
+  const items = []
+  let currentSource = ''
+  const srcMap = {
+    'Hacker News': 'hn', 'BBC News': 'bbc', 'Yahoo Finance': 'yahoo',
+    'CoinDesk': 'coindesk', 'The Block': 'block', 'Polymarket': 'polymarket',
+    'Reddit': 'reddit', 'Google News': 'google', 'Nitter': 'nitter'
+  }
+
+  rawLines.forEach(line => {
+    // Source header lines
+    const srcMatch = line.match(/^[▸▶📊📰💹🔗📈🪙💬🌐]+ (.+)/)
+    if (srcMatch) {
+      currentSource = srcMatch[1].trim()
+      return
+    }
+
+    // Skip control/decorative lines
+    if (!line || line.startsWith('╭') || line.startsWith('╰') || line.startsWith('─') || line.startsWith('│') || line.startsWith('═')) return
+    // Skip short lines
+    if (line.length < 20) return
+    // Skip lines that are pure ascii art
+    if (/^[╭╰│├└─\s]+$/.test(line)) return
+
+    const clean = line.trim()
+    if (clean.length < 15 || clean.length > 250) return
+
+    const id = Math.random().toString(36).substr(2, 9)
+    const source = srcMap[currentSource] || 'hn'
+    const now = Math.floor(Date.now() / 1000)
+    items.push({
+      id,
+      title: clean,
+      source,
+      time: now - Math.floor(Math.random() * 300),
+      url: `https://polynews/${source}/${id}`
+    })
+  })
+
+  return items
+}
+
+// ── Ticker builder ─────────────────────────────────────────────────────────────
+function buildTicker(rawLines) {
+  const seen = new Set()
+  const ticker = []
+  for (let i = rawLines.length - 1; i >= 0; i--) {
+    const line = rawLines[i]
+    if (line.length < 20 || line.length > 200) continue
+    if (line.startsWith('╭') || line.startsWith('╰') || line.startsWith('─') || line.startsWith('═')) continue
+    const key = line.trim()
+    if (!key || seen.has(key)) continue
+    if (seen.size >= 30) break
+    seen.add(key)
+    ticker.push({ text: key, color: '#00ff88' })
+  }
+  return ticker
+}
+
 export default function App() {
+  const [rawLines, setRawLines] = useState([])
   const [items, setItems] = useState([])
+  const [ticker, setTicker] = useState([])
   const [connected, setConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('all')
-  const [tickerItems, setTickerItems] = useState([])
-  const eventSourceRef = useRef(null)
+  const pollRef = useRef(null)
 
-  const connect = useCallback(() => {
-    if (eventSourceRef.current) eventSourceRef.current.close()
-
-    const es = new EventSource('https://carpenter-armoire-freckled.ngrok-free.dev/stream')
-    eventSourceRef.current = es
-
-    es.onopen = () => setConnected(true)
-    es.onerror = () => {
+  const fetchNews = useCallback(async () => {
+    try {
+      const res = await fetch('/api/news')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.lines && data.lines.length > 0) {
+          setRawLines(data.lines)
+          setItems(parseItems(data.lines))
+          setTicker(buildTicker(data.lines))
+          setConnected(true)
+          setLastUpdate(Math.floor(Date.now() / 1000))
+        }
+      } else {
+        setConnected(false)
+      }
+    } catch {
       setConnected(false)
-      setTimeout(connect, 5000)
-    }
-
-    es.onmessage = (e) => {
-      const raw = e.data
-      if (!raw || raw.length < 10) return
-
-      // Parse blocks like "📊 Yahoo Finance" etc.
-      const lines = raw.split('\n')
-      let currentSource = ''
-      let currentTime = null
-
-      lines.forEach(line => {
-        const srcMatch = line.match(/^[📊📰💹🔗📈🪙💬🌐]+ (.+)/)
-        if (srcMatch) currentSource = srcMatch[1].trim()
-
-        const timeMatch = line.match(/(\d+:\d+:\d+|\d+m ago)/)
-        if (timeMatch) {
-          const now = Date.now() / 1000
-          if (line.includes('m ago')) {
-            const m = parseInt(line.match(/(\d+)m/)?.[1] || '0')
-            currentTime = now - m * 60
-          } else {
-            currentTime = now - 120
-          }
-        }
-
-        if (line.trim() && line.length > 20 && !line.match(/^[╭╰│├└─]+/) && !line.match(/^\s*\|/)) {
-          const clean = line.replace(/^\s*[\d➡✓✗●]+/, '').trim()
-          if (clean && clean.length > 15 && clean.length < 200) {
-            const id = Math.random().toString(36).substr(2, 9)
-            const fakeUrl = `https://polynews/${id}`
-            setTickerItems(prev => {
-              const exists = prev.find(i => i.title === clean)
-              if (exists) return prev
-              const srcMap = {
-                'Hacker News': 'hn', 'BBC News': 'bbc', 'Yahoo Finance': 'yahoo',
-                'CoinDesk': 'coindesk', 'The Block': 'block', 'Polymarket': 'polymarket',
-                'Reddit': 'reddit', 'Google News': 'google'
-              }
-              return [{ id, title: clean, source: srcMap[currentSource] || 'hn', time: currentTime || now - 120, url: fakeUrl, summary: '' }, ...prev].slice(0, 50)
-            })
-          }
-        }
-      })
-
-      setLastUpdate(Math.floor(Date.now() / 1000))
     }
   }, [])
 
   useEffect(() => {
-    connect()
-    return () => { if (eventSourceRef.current) eventSourceRef.current.close() }
-  }, [connect])
+    fetchNews()
+    pollRef.current = setInterval(fetchNews, 30000)
+    return () => clearInterval(pollRef.current)
+  }, [fetchNews])
 
   const filteredItems = items.filter(item => {
     const matchSearch = item.title.toLowerCase().includes(search.toLowerCase())
-    const source = item.source
     const matchTab = activeTab === 'all' ||
-      (activeTab === 'finance' && ['yahoo'].includes(source)) ||
-      (activeTab === 'crypto' && ['coindesk', 'block', 'polymarket'].includes(source)) ||
-      (activeTab === 'news' && ['hn', 'bbc', 'google', 'reddit'].includes(source))
+      (activeTab === 'finance' && ['yahoo'].includes(item.source)) ||
+      (activeTab === 'crypto' && ['coindesk', 'block', 'polymarket'].includes(item.source)) ||
+      (activeTab === 'news' && ['hn', 'bbc', 'google', 'reddit'].includes(item.source))
     return matchSearch && matchTab
   })
-
-  const tickerEls = tickerItems.slice(0, 20).map((item, i) => (
-    <TickerItem key={item.id || i} item={item} />
-  ))
 
   return (
     <div className="min-h-screen bg-terminal-bg">
@@ -236,7 +244,7 @@ export default function App() {
               <span className="text-terminal-green font-bold text-sm">P</span>
             </div>
             <div>
-              <h1 className="text-terminal-green font-bold text-sm tracking-wider cursor-blink">POLYNEWS TERMINAL</h1>
+              <h1 className="text-terminal-green font-bold text-sm tracking-wider">POLYNEWS TERMINAL</h1>
               <p className="text-terminal-muted text-xs">Real-time news intelligence</p>
             </div>
           </div>
@@ -248,11 +256,11 @@ export default function App() {
         </div>
 
         {/* Ticker tape */}
-        {tickerEls.length > 0 && (
+        {ticker.length > 0 && (
           <div className="border-t border-terminal-border overflow-hidden">
             <div className="ticker-scroll flex items-center py-2 bg-terminal-bg/50">
-              {[...tickerEls, ...tickerEls].map((el, i) => (
-                <React.Fragment key={i}>{el}</React.Fragment>
+              {[...ticker, ...ticker].map((el, i) => (
+                <TickerItem key={i} {...el} />
               ))}
             </div>
           </div>
@@ -260,7 +268,7 @@ export default function App() {
       </header>
 
       {/* Status bar */}
-      <StatusBar connected={connected} lastUpdate={lastUpdate} items={items} />
+      <StatusBar connected={connected} lastUpdate={lastUpdate} itemCount={items.length} />
 
       {/* Main content */}
       <main className="px-4 pb-24 md:pb-8">
@@ -287,7 +295,7 @@ export default function App() {
         </div>
 
         {/* News grid */}
-        {tickerItems.length === 0 ? (
+        {items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-terminal-muted">
             <div className="text-4xl mb-4">📡</div>
             <p className="text-lg font-bold mb-2">Connecting to PolyNews...</p>
@@ -300,7 +308,7 @@ export default function App() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {tickerItems.map((item, i) => (
+            {filteredItems.map((item, i) => (
               <NewsCard key={item.id || i} item={item} />
             ))}
           </div>
