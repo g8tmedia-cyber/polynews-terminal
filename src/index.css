@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0a0e17;
+  --panel: #111827;
+  --border: #1e2d40;
+  --header: #0d1926;
+  --green: #00ff88;
+  --amber: #ffb800;
+  --red: #ff4757;
+  --blue: #00bfff;
+  --text: #e0e8f0;
+  --muted: #4a6572;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Bloomberg-style blinking cursor */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: '█';
+  animation: blink 1s step-end infinite;
+  color: var(--green);
+  margin-left: 2px;
+}
+
+/* Ticker tape */
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-scroll {
+  animation: ticker 30s linear infinite;
+}
+.ticker-scroll:hover {
+  animation-play-state: paused;
+}
+
+/* Panel glow */
+.panel-glow {
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.05);
+}
+
+/* Mobile touch optimizations */
+@media (max-width: 768px) {
+  body { font-size: 11px; }
+  .touch-target { min-height: 44px; }
+}
