@@ -22,7 +22,7 @@ POLL_INTERVAL = 120  # seconds between polynews refreshes
 # ── Background poller ─────────────────────────────────────────────────────────
 def run_polynews():
     proc = subprocess.Popen(
-        [sys.executable, '/home/pc/polynews.py', '--live', '--interval', str(POLL_INTERVAL)],
+        [sys.executable.replace('/home/pc/hermes-agent/venv/bin/python3', '/usr/bin/python3') if 'hermes-agent' in sys.executable else sys.executable, '/home/pc/polynews.py', '--live', '--interval', str(POLL_INTERVAL)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         cwd='/home/pc',
         env={**os.environ, 'TERM': 'xterm-256color'}
