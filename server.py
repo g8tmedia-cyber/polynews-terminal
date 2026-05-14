@@ -16,7 +16,7 @@ def run_polynews():
     polynews_path = os.path.join(script_dir, 'polynews.py')
     proc = subprocess.Popen(
         ['python3', polynews_path, '--live', '--interval', str(POLL_INTERVAL)],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         cwd=script_dir,
         env={**os.environ, 'TERM': 'xterm-256color'}
     )
