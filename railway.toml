@@ -1,0 +1,9 @@
+[build]
+builder = "python"
+
+[deploy]
+command = "python3 server.py"
+waitForPort = false
+
+[runtime]
+port = 3001
