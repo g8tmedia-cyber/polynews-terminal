@@ -129,21 +129,23 @@ function StatusBar({ connected, lastUpdate, itemCount }) {
   )
 }
 
-function MobileNav({ activeTab, onTabChange }) {
+function MobileNav({ activeSources, onToggleSource }) {
   return (
     <div className="md:hidden fixed bottom-0 left-0 right-0 bg-terminal-header border-t border-terminal-border z-50">
-      <div className="flex overflow-x-auto scrollbar-hide">
-        {['all', 'finance', 'crypto', 'news'].map(tab => (
+      <div className="flex overflow-x-auto scrollbar-hide px-2 py-2 gap-1">
+        {SOURCES.map(s => (
           <button
-            key={tab}
-            onClick={() => onTabChange(tab)}
-            className={`flex-1 py-3 px-4 text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap touch-target ${
-              activeTab === tab
-                ? 'text-terminal-green border-b-2 border-terminal-green bg-terminal-green/5'
-                : 'text-terminal-muted hover:text-terminal-text'
+            key={s.id}
+            onClick={() => onToggleSource(s.id)}
+            className={`flex items-center gap-1 py-2 px-3 rounded-full text-xs font-semibold transition-colors whitespace-nowrap touch-target border ${
+              activeSources.has(s.id)
+                ? 'text-terminal-bg font-bold'
+                : 'text-terminal-muted border-terminal-border'
             }`}
+            style={activeSources.has(s.id) ? { backgroundColor: s.color, borderColor: s.color } : {}}
           >
-            {tab}
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.color }} />
+            {s.label}
           </button>
         ))}
       </div>
@@ -300,7 +302,22 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState(null)
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('all')
+  const [activeSources, setActiveSources] = useState(new Set(SOURCES.map(s => s.id)))
   const pollRef = useRef(null)
+
+  const toggleSource = (sourceId) => {
+    setActiveSources(prev => {
+      const next = new Set(prev)
+      if (next.has(sourceId)) {
+        if (next.size > 1) next.delete(sourceId) // keep at least one
+      } else {
+        next.add(sourceId)
+      }
+      return next
+    })
+  }
+
+  const toggleAll = () => setActiveSources(new Set(SOURCES.map(s => s.id)))
 
   const fetchNews = useCallback(async () => {
     try {
@@ -334,7 +351,8 @@ export default function App() {
       (activeTab === 'finance' && ['yahoo'].includes(item.source)) ||
       (activeTab === 'crypto' && ['coindesk', 'block', 'polymarket'].includes(item.source)) ||
       (activeTab === 'news' && ['hn', 'bbc', 'google', 'reddit'].includes(item.source))
-    return matchSearch && matchTab
+    const matchSource = activeSources.has(item.source)
+    return matchSearch && matchTab && matchSource
   })
 
   return (
@@ -382,17 +400,25 @@ export default function App() {
 
         {/* Source filters (desktop) */}
         <div className="hidden md:flex items-center gap-2 pb-4 flex-wrap">
-          {['all', 'finance', 'crypto', 'news'].map(tab => (
+          <button
+            onClick={toggleAll}
+            className="px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors bg-terminal-green text-terminal-bg"
+          >
+            All
+          </button>
+          {SOURCES.map(s => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${
-                activeTab === tab
-                  ? 'bg-terminal-green text-terminal-bg'
-                  : 'bg-terminal-panel text-terminal-muted hover:text-terminal-text border border-terminal-border'
+              key={s.id}
+              onClick={() => toggleSource(s.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border ${
+                activeSources.has(s.id)
+                  ? 'text-terminal-bg font-bold'
+                  : 'text-terminal-muted border-terminal-border hover:text-terminal-text'
               }`}
+              style={activeSources.has(s.id) ? { backgroundColor: s.color, borderColor: s.color } : {}}
             >
-              {tab}
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color, opacity: activeSources.has(s.id) ? 1 : 0.5 }} />
+              {s.label}
             </button>
           ))}
         </div>
@@ -419,7 +445,7 @@ export default function App() {
       </main>
 
       {/* Mobile nav */}
-      <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <MobileNav activeSources={activeSources} onToggleSource={toggleSource} />
     </div>
   )
 }
