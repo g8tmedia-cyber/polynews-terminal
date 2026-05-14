@@ -1,3 +1,4 @@
+# DEBUG server.py v2
 #!/usr/bin/env python3
 """PolyNews Terminal — Flask server: REST polling."""
 
