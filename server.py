@@ -12,10 +12,12 @@ lines_lock = threading.Lock()
 POLL_INTERVAL = 120
 
 def run_polynews():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    polynews_path = os.path.join(script_dir, 'polynews.py')
     proc = subprocess.Popen(
-        ['/usr/bin/python3', '/home/pc/polynews.py', '--live', '--interval', str(POLL_INTERVAL)],
+        ['python3', polynews_path, '--live', '--interval', str(POLL_INTERVAL)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        cwd='/home/pc',
+        cwd=script_dir,
         env={**os.environ, 'TERM': 'xterm-256color'}
     )
     try:
@@ -77,4 +79,4 @@ def static_files(path):
     return send_from_directory('dist', path)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=3001, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 3001)), debug=False, threaded=True)

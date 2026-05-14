@@ -50,13 +50,35 @@ function TickerItem({ text, color }) {
 
 function NewsCard({ item }) {
   const s = SOURCES.find(x => x.id === item.source) || SOURCES[0]
+  const hasUrl = item.url && item.url.length > 5
+
+  if (hasUrl) {
+    return (
+      <a
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block p-4 bg-terminal-panel border border-terminal-border rounded-lg hover:border-terminal-muted transition-colors touch-target"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+              <span className="text-xs font-semibold" style={{ color: s.color }}>{s.label}</span>
+              {item.time && <TimeAgo ts={item.time} />}
+            </div>
+            <h3 className="text-terminal-text font-medium text-sm leading-snug mb-2 line-clamp-2">
+              {item.title}
+            </h3>
+          </div>
+        </div>
+      </a>
+    )
+  }
+
+  // No URL — show as static card (not clickable)
   return (
-    <a
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block p-4 bg-terminal-panel border border-terminal-border rounded-lg hover:border-terminal-muted transition-colors touch-target"
-    >
+    <div className="block p-4 bg-terminal-panel border border-terminal-border rounded-lg opacity-60 touch-target">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
@@ -69,7 +91,7 @@ function NewsCard({ item }) {
           </h3>
         </div>
       </div>
-    </a>
+    </div>
   )
 }
 
@@ -131,45 +153,126 @@ function MobileNav({ activeTab, onTabChange }) {
 
 // ── Parse raw polynews lines into structured items ─────────────────────────────
 function parseItems(rawLines) {
+  // Join continuation lines (multi-line titles/descriptions that got split)
+  // Lines that don't start with a marker are continuations of previous line
+  const joined = []
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i]
+    const trimmed = line.trim()
+
+    // Source header, empty, or control line = start new
+    if (!trimmed || /^[,╭╰│├└─═▸▶📊📰💹🔗📈🪙💬🌐]+$/.test(trimmed) || /^[▸▶📊📰💹🔗📈🪙💬🌐]+ /.test(trimmed)) {
+      joined.push({ type: 'raw', text: line })
+      continue
+    }
+
+    // Line starting with bullet marker
+    if (trimmed.startsWith('• ')) {
+      joined.push({ type: 'raw', text: line })
+      continue
+    }
+
+    // Score lines (HN/Reddit): "    3      0  Title" or " 18372  Title"
+    if (/^\s*\d+\s+\d+\s+.+/.test(trimmed)) {
+      joined.push({ type: 'raw', text: line })
+      continue
+    }
+
+    // Bare domain line (URL on its own)
+    if (/^[a-zA-Z0-9.-]+\.(?:com|org|net|io|co\.uk|gov|edu|info|biz|app|dev|io|tv|cc|ai)\/?$/i.test(trimmed)) {
+      joined.push({ type: 'url', text: trimmed })
+      continue
+    }
+
+    // Continuation — append to previous raw line
+    if (joined.length > 0 && joined[joined.length - 1].type === 'raw') {
+      joined[joined.length - 1].text += ' ' + trimmed
+    } else {
+      joined.push({ type: 'raw', text: line })
+    }
+  }
+
   const items = []
   let currentSource = ''
   const srcMap = {
     'Hacker News': 'hn', 'BBC News': 'bbc', 'Yahoo Finance': 'yahoo',
     'CoinDesk': 'coindesk', 'The Block': 'block', 'Polymarket': 'polymarket',
-    'Reddit': 'reddit', 'Google News': 'google', 'Nitter': 'nitter'
+    'Reddit': 'reddit', 'Google News': 'google',
+    'r/stocks': 'reddit', 'r/news': 'reddit', 'r/economy': 'reddit',
+    'r/worldnews': 'reddit', 'r/cryptocurrency': 'reddit', 'r/wallstreetbets': 'reddit',
   }
 
-  rawLines.forEach(line => {
-    // Source header lines
-    const srcMatch = line.match(/^[▸▶📊📰💹🔗📈🪙💬🌐]+ (.+)/)
-    if (srcMatch) {
-      currentSource = srcMatch[1].trim()
-      return
+  for (let i = 0; i < joined.length; i++) {
+    const entry = joined[i]
+    if (entry.type === 'url') {
+      // Attach URL to previous item
+      const url = entry.text.startsWith('http') ? entry.text : `https://${entry.text}`
+      if (items.length > 0 && !items[items.length - 1].url) {
+        items[items.length - 1].url = url
+      }
+      continue
     }
 
-    // Skip control/decorative lines
-    if (!line || line.startsWith('╭') || line.startsWith('╰') || line.startsWith('─') || line.startsWith('│') || line.startsWith('═')) return
-    // Skip short lines
-    if (line.length < 20) return
-    // Skip lines that are pure ascii art
-    if (/^[╭╰│├└─\s]+$/.test(line)) return
+    const line = entry.text
+    const trimmed = line.trim()
+    if (!trimmed) continue
 
-    const clean = line.trim()
-    if (clean.length < 15 || clean.length > 250) return
+    // Source header
+    const srcMatch = trimmed.match(/^[▸▶📊📰💹🔗📈🪙💬🌐]+ (.+)/)
+    if (srcMatch) {
+      currentSource = srcMatch[1].trim()
+      continue
+    }
 
+    // BBC/Yahoo/Google: starts with bullet
+    if (trimmed.startsWith('• ')) {
+      // Title is everything after "• "
+      const title = trimmed.slice(2).trim()
+      if (title.length < 10) continue
+
+      const id = Math.random().toString(36).substr(2, 9)
+      const source = srcMap[currentSource] || 'hn'
+      const now = Math.floor(Date.now() / 1000)
+
+      // Look ahead for URL in next entries
+      let url = ''
+      for (let j = i + 1; j < joined.length && j <= i + 3; j++) {
+        if (joined[j].type === 'url') {
+          url = joined[j].text.startsWith('http') ? joined[j].text : `https://${joined[j].text}`
+          break
+        }
+        if (joined[j].text.trim().startsWith('• ')) break // next item started
+        if (/^\s*\d+\s+\d+\s+/.test(joined[j].text.trim())) break // HN item
+      }
+
+      items.push({ id, title, source, time: now - Math.floor(Math.random() * 300), url })
+      continue
+    }
+
+    // HN/Reddit: score line "    N      0  Title"
+    const scoreMatch = trimmed.match(/^\s*(\d+)\s+(\d+)\s+(.+)/)
+    if (scoreMatch) {
+      const title = scoreMatch[3].trim()
+      if (title.length < 10) continue
+      const id = Math.random().toString(36).substr(2, 9)
+      const source = srcMap[currentSource] || 'hn'
+      const now = Math.floor(Date.now() / 1000)
+      items.push({ id, title, source, time: now - Math.floor(Math.random() * 300), url: '' })
+      continue
+    }
+
+    // Skip short lines and bare domains
+    if (trimmed.length < 15) continue
+    if (/^[a-zA-Z0-9.-]+\.(?:com|org|net|io|co\.uk|gov|edu|info|biz|app|dev|io|tv|cc|ai)\/?$/i.test(trimmed)) continue
+
+    // Generic fallback
     const id = Math.random().toString(36).substr(2, 9)
     const source = srcMap[currentSource] || 'hn'
     const now = Math.floor(Date.now() / 1000)
-    items.push({
-      id,
-      title: clean,
-      source,
-      time: now - Math.floor(Math.random() * 300),
-      url: `https://polynews/${source}/${id}`
-    })
-  })
+    items.push({ id, title: trimmed, source, time: now - Math.floor(Math.random() * 300), url: '' })
+  }
 
-  return items
+  return items.filter(item => item.title.length > 10)
 }
 
 // ── Ticker builder ─────────────────────────────────────────────────────────────
